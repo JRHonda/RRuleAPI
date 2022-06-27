@@ -7,14 +7,17 @@ let retrievedRRule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR"
 // MARK: - RRule
 
 do {
+    // Decode and modify
     var rrule = try RRule.parse(rrule: retrievedRRule)!
-    print(rrule.frequency)
-    print(rrule.interval)
-    print(rrule.byDay!)
-    rrule.byDay?.removeAll(where: { $0 == "WE" })
-    rrule.byHour = ["8"]
     print(rrule.asRRuleString())
+    rrule.byDay?.remove(.wednesday)
+    rrule.byMinute?.insert(.minute(30))
+    rrule.byHour?.insert(.hour(12))
+    rrule.wkst = .monday
+    print(rrule.asRRuleString())
+    rrule.byHour?.isEmpty
     
+    // Encode and print JSON
     let rruleJSONData = try JSONEncoder().encode(rrule)
     print(String(data: rruleJSONData, encoding: .utf8)!)
 } catch {

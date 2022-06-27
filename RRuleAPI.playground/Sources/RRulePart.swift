@@ -39,11 +39,12 @@ internal struct RRulePart {
     }
     
     func asJSONKeyValuePair() -> String {
+        let jsonKey = "\"\(key)\""
         switch _rruleKey {
             case .byDay:
-                return "\"\(key)\": \(value)" // array
+                return "\(jsonKey): \(value)" // array
             case .freq, .interval:
-                return "\"\(key)\": \"\(value)\"" // string
+                return "\(jsonKey): \"\(value)\"" // string
         }
     }
     
