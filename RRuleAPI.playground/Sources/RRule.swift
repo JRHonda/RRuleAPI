@@ -78,10 +78,24 @@ extension RRule {
     public static func parse(rrule: String) -> Self? {
         var rRule = RRule()
         
-        let rRuleParts = rrule
+        // TODO: - Do we want to trim or fail an otherwise valid RRule such as "FREQ=DAILY;BYDAY=MO,WE,FR " <- has empty string at end
+        let trimmedRRule = rrule.trimmingCharacters(in: .whitespaces)
+        
+        if trimmedRRule.isEmpty { return nil }
+        
+        let rRuleParts = trimmedRRule
             .components(separatedBy: Constants.Delimiter.part)
             .compactMap { kvp -> (String, String)? in
                 let kvpComponents = kvp.components(separatedBy: Constants.Delimiter.keyValuePair)
+                
+                // makes sure rrule is not of the form -> "FREQ=DAILY;INTERVAL="
+                if kvpComponents.count == 1 {
+                    if let soloComponent = kvpComponents.first, soloComponent == "" {
+                        fatalError("Please check your RRule -> \"\(rrule)\" for correctness. It is likely your RRule string has an invalid character at the end of it.")
+                    }
+                    fatalError("Invalid RRule part (missing key or value) -> \(kvpComponents)")
+                }
+                
                 guard kvpComponents.count == 2,
                       let key = kvpComponents.first,
                       let value = kvpComponents.last else { return nil }
@@ -89,7 +103,7 @@ extension RRule {
             }
         
         guard rRuleParts.isEmpty == false else {
-            fatalError("No valid RRule parts contained in RRule string: \(rrule.isEmpty ? "{empty}" : rrule)")
+            fatalError("No valid RRule parts contained in RRule string: \(trimmedRRule.isEmpty ? "{empty}" : trimmedRRule)")
         }
         
         Dictionary<String, String>(uniqueKeysWithValues: rRuleParts)
@@ -135,7 +149,7 @@ extension RRule {
             }
         
         if rRule.frequency == nil {
-            fatalError("Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(rrule)")
+            fatalError("Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(trimmedRRule)")
         }
         
         return rRule
@@ -274,4 +288,8 @@ extension RRule {
         }
     }
     
+}
+
+extension String {
+    static let empty = ""
 }
