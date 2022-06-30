@@ -1,6 +1,12 @@
 import Foundation
 import UIKit
 
+let shouldRunTests = true
+
+if shouldRunTests {
+    try RRuleTests.runAll()
+}
+
 let retrievedRRule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;BYMINUTE=30,45;WKST=TH"
 
 do {

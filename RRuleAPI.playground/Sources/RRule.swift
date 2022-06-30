@@ -1,8 +1,5 @@
 import Foundation
 
-/** TODOs */
-// TODO: - Determine logic for RRule parts that when updated makes sense to modify other RRule parts ??
-
 /**
  RFC 5545
  */
@@ -203,19 +200,19 @@ public extension RRule {
         
         public var message: String {
             switch self {
-                case .missingFrequency(let rRule):
-                    return "Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(rRule)"
-                case .emptyRRule:
-                    return "Empty RRule string!"
-                case .invalidInput(let failedInputValidation):
-                    return failedInputValidation.message
-                case .unknownOrUnsupported(rRulePart: let message):
-                    return message
-                case .multiple(failedValidations: let failedValidations):
-                    return """
-                    ⚠️ Failed validation(s)! ⚠️
-                    \(failedValidations.enumerated().map { "⚠️ \($0 + 1). \($1.message)" }.joined(separator: "\n"))
-                    """
+            case .missingFrequency(let rRule):
+                return "⚠️ Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(rRule)"
+            case .emptyRRule:
+                return "⚠️ Empty RRule string!"
+            case .invalidInput(let failedInputValidation):
+                return failedInputValidation.message
+            case .unknownOrUnsupported(rRulePart: let message):
+                return message
+            case .multiple(let failedValidations):
+                return """
+                ⚠️ Multiple Failed Validations ⚠️
+                \(failedValidations.enumerated().map { "\($0 + 1). \($1.message)" }.joined(separator: "\n"))
+                """
             }
         }
     }
@@ -233,21 +230,21 @@ public extension RRule {
         var message: String {
             switch self {
             case .invalidRRule(let invalidRRule):
-                return "Please check your RRule -> \"\(invalidRRule)\" for correctness."
+                return "⚠️ Please check your RRule -> \"\(invalidRRule)\" for correctness."
             case .frequency(let invalidInput):
-                return "Invalid \(RRuleKey.frequency.rawValue) input: \(String(describing: invalidInput)) - MUST be one of the following: \(Frequency.allCases.map { $0.rawValue })"
+                return "⚠️ Invalid \(RRuleKey.frequency.rawValue) input: \(String(describing: invalidInput)) - MUST be one of the following: \(Frequency.allCases.map { $0.rawValue })"
             case .interval(let invalidInput):
-                return "Invalid \(RRuleKey.interval.rawValue) input: \(invalidInput) - MUST be a positive integer."
+                return "⚠️ Invalid \(RRuleKey.interval.rawValue) input: \(invalidInput) - MUST be a positive integer."
             case .byMinute(let invalidInput):
-                return "Invalid \(RRuleKey.byMinute.rawValue) input(s): \(invalidInput) - Allowed inputs interval -> [0,59]"
+                return "⚠️ Invalid \(RRuleKey.byMinute.rawValue) input(s): \(invalidInput) - Allowed inputs interval -> [0,59]"
             case .byHour(let invalidInput):
-                return "Invalid \(RRuleKey.byHour.rawValue) input(s): \(invalidInput) - Allowed inputs interval -> [0,23]"
+                return "⚠️ Invalid \(RRuleKey.byHour.rawValue) input(s): \(invalidInput) - Allowed inputs interval -> [0,23]"
             case .byDay(let invalidInput):
-                return "Invalid \(RRuleKey.byDay.rawValue) input(s): \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
+                return "⚠️ Invalid \(RRuleKey.byDay.rawValue) input(s): \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
             case .wkst(let invalidInput):
-                return "Invalid \(RRuleKey.wkst.rawValue) input: \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
+                return "⚠️ Invalid \(RRuleKey.wkst.rawValue) input: \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
             case .general(let message):
-                return "\(message)"
+                return "⚠️ \(message)"
             }
         }
     }
@@ -311,19 +308,23 @@ private extension RRule {
                 if rRule.interval < 1 { return .interval(rRule.interval) }
             case .byMinute:
                 if let invalidByMinutes = Self.validateIntegerPartValues(rRule.byMinute.map { $0 }, validator: validators[.byMinute]) {
-                return .byMinute(invalidByMinutes)
+                    return .byMinute(invalidByMinutes)
                 }
             case .byHour:
                 if let invalidByHours = Self.validateIntegerPartValues(rRule.byHour.map { $0 }, validator: validators[.byHour]) {
-                return .byHour(invalidByHours)
+                    return .byHour(invalidByHours)
                 }
-            case .byDay: return nil
-            case .wkst: return nil
+            case .byDay: break
+            case .wkst: break
             }
             return nil
         }
         
-        if failedValidations.isEmpty == false {
+        if failedValidations.count == 1 {
+            throw RRuleException.invalidInput(failedValidations[0])
+        }
+        
+        if failedValidations.count > 1 {
             throw RRuleException.multiple(failedValidations)
         }
     }
