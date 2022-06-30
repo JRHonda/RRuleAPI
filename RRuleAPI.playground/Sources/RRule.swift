@@ -11,17 +11,11 @@ public struct RRule {
     // MARK: - Properties
     
     /// REQUIRED pursuant to RFC 5545
-    public var frequency: Frequency!
+    public var frequency: Frequency! // TODO: - Simple conditional mapping based on frequency change i.e. if user has an RRule that defines a WEEKLY frequency but changes to YEARLY, then it would make sense to clear out the data used generate weekly recurrences. There are so many scenarios so in order to make this API easy to maintain and use, we'll focus on FREQ level changes only.
     
     /// Default == 1 pursuant to RFC 5545
     /// MUST be a postive integer
-    public var interval: Int? {
-        didSet {
-            guard let interval = interval else { return }
-            if interval == 1 { self.interval = nil }
-            if interval < 1 { fatalError(FailedInputValidation.interval(interval).message) }
-        }
-    }
+    public var interval: Int = Constants.RRulePartDefault.interval
     
     /**
     Time input minute component
@@ -38,19 +32,11 @@ public struct RRule {
      
      Valid input domain: [0, 59]
      */
-    public var byMinute: Set<Int> = [] {
-        didSet {
-            Self.validateInputs(byMinute.map { $0 }, forKey: .byMinute, validator: Self.validatorMap[.byMinute]!)
-        }
-    }
+    public var byMinute: Set<Int> = []
     
     /// Time input hour component
     /// Valid input domain: [0, 23]
-    public var byHour: Set<Int> = [] {
-        didSet {
-            Self.validateInputs(byHour.map { $0 }, forKey: .byHour, validator: Self.validatorMap[.byHour]!)
-        }
-    }
+    public var byHour: Set<Int> = []
     
     /// Date or Date-Time day component
     public var byDay: Set<Day> = []
@@ -62,7 +48,7 @@ public struct RRule {
      and a BYDAY rule part is specified. ...{more to read in RFC 5545}... . The
      default value is MO.
      */
-    public var wkst: Day?
+    public var wkst: Day? // TODO: - Still deciding if we want to support this on initial API release
     
     public init() { }
     
@@ -75,146 +61,110 @@ extension RRule {
     /// Parses an RRule string into a modifiable `RRule` instance
     /// - Parameter rrule: Passed in RRule string (should be in format defined in RFC 5545)
     /// - Returns: A modifiable `RRule` object of the passed in RRule string
-    public static func parse(rrule: String) -> Self? {
-        var rRule = RRule()
-        
-        // TODO: - Do we want to trim or fail an otherwise valid RRule such as "FREQ=DAILY;BYDAY=MO,WE,FR " <- has empty string at end
-        let trimmedRRule = rrule.trimmingCharacters(in: .whitespaces)
-        
-        if trimmedRRule.isEmpty { return nil }
-        
-        let rRuleParts = trimmedRRule
-            .components(separatedBy: Constants.Delimiter.part)
-            .compactMap { kvp -> (String, String)? in
-                let kvpComponents = kvp.components(separatedBy: Constants.Delimiter.keyValuePair)
+    public static func parse(rRule: String) throws -> Self? {
+        if rRule.isEmpty { throw RRuleException.emptyRRule }
                 
-                // makes sure rrule is not of the form -> "FREQ=DAILY;INTERVAL="
-                if kvpComponents.count == 1 {
-                    if let soloComponent = kvpComponents.first, soloComponent == "" {
-                        fatalError("Please check your RRule -> \"\(rrule)\" for correctness. It is likely your RRule string has an invalid character at the end of it.")
-                    }
-                    fatalError("Invalid RRule part (missing key or value) -> \(kvpComponents)")
-                }
+        let rRuleParts = try rRule
+            .components(separatedBy: Constants.Delimiter.part)
+            .compactMap { kvp -> (String, String) in
+                let kvpComponents = kvp.components(separatedBy: Constants.Delimiter.keyValuePair)
                 
                 guard kvpComponents.count == 2,
                       let key = kvpComponents.first,
-                      let value = kvpComponents.last else { return nil }
+                      let value = kvpComponents.last else {
+                    throw RRuleException.invalidInput(.invalidRRule(rRule))
+                }
+                
                 return (key, value)
             }
         
-        guard rRuleParts.isEmpty == false else {
-            fatalError("No valid RRule parts contained in RRule string: \(trimmedRRule.isEmpty ? "{empty}" : trimmedRRule)")
-        }
+        var recurrenceRule = RRule()
         
-        Dictionary<String, String>(uniqueKeysWithValues: rRuleParts)
+        try Dictionary<String, String>(uniqueKeysWithValues: rRuleParts)
             .forEach { key, value in
                 switch RRuleKey(rawValue: key) {
                 case .frequency:
                     guard let frequency = Frequency(rawValue: value) else {
-                        fatalError(FailedInputValidation.frequency(value).message)
+                        throw RRuleException.invalidInput(.frequency(value))
                     }
-                    rRule.frequency = frequency
+                    recurrenceRule.frequency = frequency
                 case .interval:
                     guard let interval = Int(value), interval > 0 else {
-                        fatalError(FailedInputValidation.interval(value).message)
+                        throw RRuleException.invalidInput(.interval(value))
                     }
-                    rRule.interval = interval != 1 ? interval : nil
+                    recurrenceRule.interval = interval
                 case .byMinute:
-                    let minutes = value.components(separatedBy: Constants.Delimiter.list)
+                    let byMinutes = value.components(separatedBy: Constants.Delimiter.list)
                         .compactMap { Int($0) }
-                    validateInputs(minutes, forKey: .byMinute, validator: validatorMap[.byMinute]!)
-                    rRule.byMinute = Set(minutes)
+                    if let invalidByMinutes = validateIntegerPartValues(byMinutes, validator: validators[.byMinute]) {
+                        throw RRuleException.invalidInput(.byMinute(invalidByMinutes))
+                    }
+                    recurrenceRule.byMinute = Set(byMinutes)
                 case .byHour:
-                    let hours = value.components(separatedBy: Constants.Delimiter.list)
+                    let byHours = value.components(separatedBy: Constants.Delimiter.list)
                         .compactMap { Int($0) }
-                    validateInputs(hours, forKey: .byHour, validator: validatorMap[.byHour]!)
-                    rRule.byHour = Set(hours)
+                    if let invalidByHours = validateIntegerPartValues(byHours, validator: validators[.byHour]) {
+                        throw RRuleException.invalidInput(.byHour(invalidByHours))
+                    }
+                    recurrenceRule.byHour = Set(byHours)
                 case .byDay:
-                    let days = value.components(separatedBy: Constants.Delimiter.list)
+                    let days = try value.components(separatedBy: Constants.Delimiter.list)
                         .compactMap { day -> Day in
                             guard let day = Day(rawValue: day) else {
-                                fatalError(FailedInputValidation.byDay(day).message)
+                                throw RRuleException.invalidInput(.byDay(day))
                             }
                             return day
                         }
-                    rRule.byDay = Set(days)
+                    recurrenceRule.byDay = Set(days)
                 case .wkst:
                     guard let wkst = Day(rawValue: value) else {
-                        fatalError(FailedInputValidation.wkst(value).message)
+                        throw RRuleException.invalidInput(.wkst(value))
                     }
-                    rRule.wkst = wkst
+                    recurrenceRule.wkst = wkst
                 case .none:
-                    fatalError("\(key.isEmpty ? "{empty}" : key) is an invalid RRule part or is not yet supported in this API.")
+                    throw RRuleException.unknownOrUnsupported(rRulePart: key.isEmpty ? "{empty}" : key)
                 }
             }
         
-        if rRule.frequency == nil {
-            fatalError("Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(trimmedRRule)")
+        if recurrenceRule.frequency == nil {
+            throw RRuleException.missingFrequency(rRule)
         }
         
-        return rRule
+        return recurrenceRule
     }
-    
-    private typealias InputValidator = (Int) -> Bool
-    
-    private static var validatorMap: [RRuleKey: InputValidator] {[
-        .byMinute: { $0 >= 0 && $0 <= 59 },
-        .byHour: { $0 >= 0 && $0 <= 23 }
-    ]}
-    
-    private static func validateInputs(_ inputs: [Int], forKey codingKey: RRuleKey, validator: InputValidator) {
-        let invalidInputs = inputs.filter { !validator($0) }
-        if invalidInputs.isEmpty == false {
-            if codingKey == .byMinute {
-                fatalError(FailedInputValidation.byMinute(invalidInputs).message)
-            }
-            if codingKey == .byHour {
-                fatalError(FailedInputValidation.byHour(invalidInputs).message)
-            }
-            fatalError("Invalid input(s) for \(codingKey.rawValue): \(invalidInputs)")
-        }
-    }
-    
+
 }
 
 // MARK: - Generate RRule String
 
 extension RRule {
     
-    public func asRRuleString() -> String {
-        // initialize rrule string with REQUIRED frequency part
-        var rrule = "\(RRuleKey.frequency.rawValue)\(Constants.Delimiter.keyValuePair)\(frequency.rawValue)"
+    public func asRRuleString() throws -> String {
+        try Self.validateAllParts(forRRule: self)
         
-        addValueForPartIfPresent(interval, toRRule: &rrule, forKey: .interval)
-        addValuesForPartIfPresent(byMinute, toRRule: &rrule, forKey: .byMinute)
-        addValuesForPartIfPresent(byHour, toRRule: &rrule, forKey: .byHour)
-        addValuesForPartIfPresent(byDay.map { $0.rawValue }, toRRule: &rrule, forKey: .byDay)
-        addValueForPartIfPresent(wkst?.rawValue, toRRule: &rrule, forKey: .wkst)
-
-        return rrule
+        return [
+            stringForPart(frequency.rawValue, forKey: .frequency),
+            stringForPart("\(interval)", forKey: .interval),
+            stringForPart(byMinute.map { "\($0)" }, forKey: .byMinute),
+            stringForPart(byHour.map { "\($0)" }, forKey: .byHour),
+            stringForPart(byDay.map { $0.rawValue }, forKey: .byDay),
+            stringForPart(wkst?.rawValue, forKey: .wkst)
+        ]
+            .compactMap { $0 }
+            .joined(separator: Constants.Delimiter.part)
     }
     
-    private func addValuesForPartIfPresent<Part: Collection>(
-        _ part: Part,
-        toRRule rRule: inout String,
-        forKey codingKey: RRuleKey
-    ) {
-        guard part.isEmpty == false else { return }
-        
-        rRule += "\(Constants.Delimiter.part)\(codingKey.rawValue)\(Constants.Delimiter.keyValuePair)"
-        
-        for (idx, element) in part.enumerated() {
-            if idx == part.count - 1 {
-                rRule += "\(element)"
-                break
-            }
-            rRule += "\(element)\(Constants.Delimiter.list)"
+    private func stringForPart(_ part: String?, forKey rRuleKey: RRuleKey) -> String? {
+        guard let part = part else { return nil }
+        if rRuleKey == .interval, interval == Constants.RRulePartDefault.interval { return nil }
+        return "\(rRuleKey.rawValue)\(Constants.Delimiter.keyValuePair)\(part)"
+    }
+    
+    private func stringForPart(_ partValues: [String]?, forKey rRuleKey: RRuleKey) -> String? {
+        guard let partValues = partValues, partValues.isEmpty == false else {
+            return nil
         }
-    }
-    
-    private func addValueForPartIfPresent(_ value: Any?, toRRule rRule: inout String, forKey codingKey: RRuleKey) {
-        guard let value = value else { return }
-        rRule += "\(Constants.Delimiter.part)\(RRuleKey.wkst.rawValue)\(Constants.Delimiter.keyValuePair)\(value)"
+        return "\(rRuleKey.rawValue)\(Constants.Delimiter.keyValuePair)\(partValues.joined(separator: Constants.Delimiter.list))"
     }
     
 }
@@ -240,30 +190,40 @@ public extension RRule {
     
 }
 
-// MARK: - Private
+// MARK: - Exception Handling
 
-extension RRule {
+public extension RRule {
     
-    private enum Constants {
-        enum Delimiter {
-            static let part         = ";"
-            static let keyValuePair = "="
-            static let list         = ","
+    enum RRuleException: Error {
+        case missingFrequency(_ message: String)
+        case emptyRRule
+        case invalidInput(_ failedValidation: FailedInputValidation)
+        case unknownOrUnsupported(rRulePart: String)
+        case multiple(_ failedValidations: [FailedInputValidation])
+        
+        public var message: String {
+            switch self {
+                case .missingFrequency(let rRule):
+                    return "Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(rRule)"
+                case .emptyRRule:
+                    return "Empty RRule string!"
+                case .invalidInput(let failedInputValidation):
+                    return failedInputValidation.message
+                case .unknownOrUnsupported(rRulePart: let message):
+                    return message
+                case .multiple(failedValidations: let failedValidations):
+                    return """
+                    ⚠️ Failed validation(s)! ⚠️
+                    \(failedValidations.enumerated().map { "⚠️ \($0 + 1). \($1.message)" }.joined(separator: "\n"))
+                    """
+            }
         }
     }
     
-    /// The raw string values listed below are defined in RFC 5545.
-    enum RRuleKey: String {
-        case frequency = "FREQ"
-        case interval  = "INTERVAL"
-        case byMinute  = "BYMINUTE"
-        case byHour    = "BYHOUR"
-        case byDay     = "BYDAY"
-        case wkst      = "WKST"
-    }
-    
     enum FailedInputValidation {
-        case frequency(Any)
+        case invalidRRule(Any)
+        case general(Any)
+        case frequency(Any?)
         case interval(Any)
         case byMinute(Any)
         case byHour(Any)
@@ -272,8 +232,10 @@ extension RRule {
         
         var message: String {
             switch self {
+            case .invalidRRule(let invalidRRule):
+                return "Please check your RRule -> \"\(invalidRRule)\" for correctness."
             case .frequency(let invalidInput):
-                return "Invalid \(RRuleKey.frequency.rawValue) input: \(invalidInput) - MUST be one of the following: \(Frequency.allCases.map { $0.rawValue })"
+                return "Invalid \(RRuleKey.frequency.rawValue) input: \(String(describing: invalidInput)) - MUST be one of the following: \(Frequency.allCases.map { $0.rawValue })"
             case .interval(let invalidInput):
                 return "Invalid \(RRuleKey.interval.rawValue) input: \(invalidInput) - MUST be a positive integer."
             case .byMinute(let invalidInput):
@@ -284,12 +246,92 @@ extension RRule {
                 return "Invalid \(RRuleKey.byDay.rawValue) input(s): \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
             case .wkst(let invalidInput):
                 return "Invalid \(RRuleKey.wkst.rawValue) input: \(invalidInput) - Allowed inputs: \(Day.allCases.map { $0.rawValue })"
+            case .general(let message):
+                return "\(message)"
             }
         }
     }
     
 }
 
-extension String {
+// MARK: - Private
+
+private extension RRule {
+    
+    enum Constants {
+        enum RRulePartDefault {
+            static let interval = 1
+        }
+        
+        enum Delimiter {
+            static let part         = ";"
+            static let keyValuePair = "="
+            static let list         = ","
+        }
+    }
+    
+    /// The raw string values listed below are defined in RFC 5545.
+    enum RRuleKey: String, CaseIterable {
+        case frequency = "FREQ"
+        case interval  = "INTERVAL"
+        case byMinute  = "BYMINUTE"
+        case byHour    = "BYHOUR"
+        case byDay     = "BYDAY"
+        case wkst      = "WKST"
+    }
+    
+}
+
+// MARK: - Validators
+
+private extension RRule {
+    
+    typealias InputValidator = (Int) -> Bool
+    
+    static var validators: [RRuleKey: InputValidator] {[
+        .byMinute: { $0 >= 0 && $0 <= 59 }, // interval [0,59]
+        .byHour: { $0 >= 0 && $0 <= 23 }    // interval [0,23]
+    ]}
+    
+    typealias InvalidIntegerPartValues = [Int]
+    
+    static func validateIntegerPartValues(_ values: [Int], validator: InputValidator?) -> InvalidIntegerPartValues? {
+        guard let validator = validator, values.isEmpty == false else { return nil }
+        let invalidValues = values.filter { !validator($0) }
+        return invalidValues.isEmpty ? nil : invalidValues
+    }
+    
+    static func validateAllParts(forRRule rRule: Self) throws {
+        // ensure all parts (that need validation) are validated (including parts added in the future)
+        let failedValidations = RRuleKey.allCases.compactMap { key -> FailedInputValidation? in
+            switch key {
+            case .frequency:
+                if rRule.frequency == nil { return .frequency(nil) }
+            case .interval:
+                if rRule.interval < 1 { return .interval(rRule.interval) }
+            case .byMinute:
+                if let invalidByMinutes = Self.validateIntegerPartValues(rRule.byMinute.map { $0 }, validator: validators[.byMinute]) {
+                return .byMinute(invalidByMinutes)
+                }
+            case .byHour:
+                if let invalidByHours = Self.validateIntegerPartValues(rRule.byHour.map { $0 }, validator: validators[.byHour]) {
+                return .byHour(invalidByHours)
+                }
+            case .byDay: return nil
+            case .wkst: return nil
+            }
+            return nil
+        }
+        
+        if failedValidations.isEmpty == false {
+            throw RRuleException.multiple(failedValidations)
+        }
+    }
+    
+}
+
+// MARK: - String+Extensions
+
+private extension String {
     static let empty = ""
 }

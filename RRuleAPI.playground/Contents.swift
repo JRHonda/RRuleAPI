@@ -1,13 +1,17 @@
 import Foundation
 import UIKit
 
-let retrievedRRule = "FREQ=DAILY;" // "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;BYMINUTE=30,45;WKST=TH"
+let retrievedRRule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;BYMINUTE=30,45;WKST=TH"
 
-var rrule = RRule.parse(rrule: retrievedRRule)!
+do {
+    var rrule = try RRule.parse(rRule: retrievedRRule)!
+    print(try rrule.asRRuleString())
 
-print(rrule.asRRuleString())
+    rrule.byHour.insert(-1)
+    rrule.byMinute.insert(-1)
+    rrule.wkst = .monday
 
-rrule.byHour.insert(23)
-rrule.wkst = .monday
-
-print(rrule.asRRuleString())
+    print(try rrule.asRRuleString())
+} catch(let error as RRule.RRuleException) {
+    print(error.message)
+}
