@@ -1,3 +1,9 @@
+//
+//  RRuleAPI.swift
+//
+//  Created by Justin Honda on 6/23/2022.
+//
+
 import Foundation
 
 /**
@@ -63,37 +69,38 @@ extension RRule {
                 
         let rRuleParts = try rRule
             .components(separatedBy: ";")
-            .compactMap { kvp -> (String, String) in
+            .compactMap { kvp -> (RRuleKey, String) in
                 let kvpComponents = kvp.components(separatedBy: "=")
                 
                 guard kvpComponents.count == 2,
-                      let key = kvpComponents.first,
+                      let keyString = kvpComponents.first,
                       let value = kvpComponents.last else {
                     throw RRuleException.invalidInput(.invalidRRule(rRule))
                 }
+                
+                let key = try RRuleKey(keyString)
                 
                 return (key, value)
             }
         
         var recurrenceRule = RRule()
         
-        try Dictionary<String, String>(uniqueKeysWithValues: rRuleParts)
-            .forEach { key, value in
-                switch try RRuleKey(key) {
-                case .frequency:
-                    recurrenceRule.frequency = try Frequency(value)
-                case .interval:
-                    recurrenceRule.interval = try validate(value, forKey: .interval)
-                case .byMinute:
-                    recurrenceRule.byMinute = try validate(value, forKey: .byMinute)
-                case .byHour:
-                    recurrenceRule.byHour = try validate(value, forKey: .byHour)
-                case .byDay:
-                    recurrenceRule.byDay = try Day.validate(value)
-                case .wkst:
-                    recurrenceRule.wkst = try Day(value, forPart: .wkst)
-                }
+        try rRuleParts.forEach { key, value in
+            switch key {
+            case .frequency:
+                recurrenceRule.frequency = try Frequency(value)
+            case .interval:
+                recurrenceRule.interval = try validate(value, forKey: .interval)
+            case .byMinute:
+                recurrenceRule.byMinute = try validate(value, forKey: .byMinute)
+            case .byHour:
+                recurrenceRule.byHour = try validate(value, forKey: .byHour)
+            case .byDay:
+                recurrenceRule.byDay = try Day.validate(value)
+            case .wkst:
+                recurrenceRule.wkst = try Day(value, for: .wkst)
             }
+        }
         
         if recurrenceRule.frequency == nil {
             throw RRuleException.missingFrequency(rRule)
@@ -174,7 +181,7 @@ public extension RRule {
         case friday    = "FR"
         case saturday  = "SA"
         
-        init(_ day: String, forPart part: Part) throws {
+        init(_ day: String, for part: Part) throws {
             guard let day = Day(rawValue: day) else {
                 throw RRuleException.invalidInput(part == .byDay ? .byDay(day) : .wkst(day))
             }
@@ -182,7 +189,7 @@ public extension RRule {
         }
         
         static func validate(_ value: String) throws -> Set<Day> {
-            let byDays = try value.components(separatedBy: ",").map { try Day($0, forPart: .byDay) }
+            let byDays = try value.components(separatedBy: ",").map { try Day($0, for: .byDay) }
             return Set(byDays)
         }
     }

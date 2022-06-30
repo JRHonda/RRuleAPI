@@ -1,3 +1,9 @@
+//
+//  RRuleAPI.swift
+//
+//  Created by Justin Honda on 6/29/2022.
+//
+
 import Foundation
 import XCTest
 
@@ -11,7 +17,7 @@ final public class RRuleTests: XCTestCase {
     
     // MARK: - Tests
     
-    // TODO: - All `precondition` checks are for playground use only as `XCTAssert`s do not work, remove them once migrated to test target in Medications project
+    // TODO: - All `precondition` checks are for playground use only as `XCTAssert`s do not work, remove them once migrated to a test target
     
     func testFullValidRRuleString() throws {
         let allByMinutes = Array(0...59).map { "\($0)" }.joined(separator: ",")
