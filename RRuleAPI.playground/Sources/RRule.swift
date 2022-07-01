@@ -19,25 +19,6 @@ public struct RRule {
         case byHour    = "BYHOUR"
         case byDay     = "BYDAY"
         case wkst      = "WKST"
-        
-        init(_ key: String) throws {
-            guard let rRuleKey = RRuleKey(rawValue: key) else {
-                throw RRuleException.unknownOrUnsupported(rRulePart: key.isEmpty ? "{empty}" : key)
-            }
-            self = rRuleKey
-        }
-    }
-    
-    /// 24-hour time format
-    public enum RRuleDefault: Int {
-        case morning   = 8
-        case afternoon = 12
-        case evening   = 17
-        case bedtime   = 21
-        
-        var rRule: RRule {
-            .init(frequency: .daily, byHour: .default(for: .byHour, timeOfDay: self))
-        }
     }
     
     // MARK: - Properties
@@ -47,7 +28,7 @@ public struct RRule {
     
     /// Default == 1 pursuant to RFC 5545
     /// MUST be a postive integer
-    public var interval: RRuleInterval = .init()
+    public var interval: Int = 1
     
     /**
     Time input minute component
@@ -64,11 +45,11 @@ public struct RRule {
      
      Valid input domain: [0, 59]
      */
-    public var byMinute: RRuleSet = .init(for: .byMinute)
+    public var byMinute: Set<Int> = []
     
     /// Time input hour component
     /// Valid input domain: [0, 23]
-    public var byHour: RRuleSet = .init(for: .byHour)
+    public var byHour: Set<Int> = []
     
     /// Date or Date-Time day component
     public var byDay: Set<Day> = []
@@ -84,15 +65,14 @@ public struct RRule {
     
     public init() { }
     
-    public init(default rRuleDefault: RRuleDefault) { self = rRuleDefault.rRule }
-    
-    /// Defaults to desired frequency at 0800
-    public init(frequency: Frequency,
-                interval: RRuleInterval = .init(),
-                byMinute: RRuleSet = .default(for: .byMinute),
-                byHour: RRuleSet = .default(for: .byHour),
-                byDay: Set<Day> = [],
-                wkst: Day? = nil) {
+    public init(
+        frequency: Frequency,
+        interval: Int = 1,
+        byMinute: Set<Int>,
+        byHour: Set<Int>,
+        byDay: Set<Day> = [],
+        wkst: Day? = nil
+    ) {
         self.frequency = frequency
         self.interval = interval
         self.byMinute = byMinute
@@ -120,31 +100,34 @@ extension RRule {
                 
                 guard kvpComponents.count == 2,
                       let keyString = kvpComponents.first,
+                      let key = RRuleKey(rawValue: keyString),
                       let value = kvpComponents.last else {
                     throw RRuleException.invalidInput(.invalidRRule(rRule))
                 }
-                
-                let key = try RRuleKey(keyString)
-                
+                                
                 return (key, value)
             }
         
+        func separate<T>(_ value: String, convertTo castType: (String) -> T?) -> [T] {
+            value.components(separatedBy: ",").compactMap { castType($0) }
+        }
+        
         var recurrenceRule = RRule()
         
-        try rRuleParts.forEach { key, value in
+        rRuleParts.forEach { key, value in
             switch key {
             case .frequency:
-                recurrenceRule.frequency = try Frequency(value)
+                recurrenceRule.frequency = Frequency(rawValue: value)
             case .interval:
-                    recurrenceRule.interval = try .init(value)
+                if let interval = Int(value) { recurrenceRule.interval = interval }
             case .byMinute:
-                recurrenceRule.byMinute = try .init(value, for: .byMinute)
+                recurrenceRule.byMinute = Set(separate(value, convertTo: Int.init))
             case .byHour:
-                recurrenceRule.byHour = try .init(value, for: .byHour)
+                recurrenceRule.byHour = Set(separate(value, convertTo: Int.init))
             case .byDay:
-                recurrenceRule.byDay = try Day.validate(value)
+                recurrenceRule.byDay = Set(separate(value, convertTo: Day.init))
             case .wkst:
-                recurrenceRule.wkst = try Day(value, for: .wkst)
+                recurrenceRule.wkst = Day(rawValue: value)
             }
         }
         
@@ -161,14 +144,18 @@ extension RRule {
 
 extension RRule {
     
+    /// First, all properties on `RRule` are validated to ensure the generated string is correct.
+    /// Lastly, all parts, that are present and "should" be added to the RRule string, are added.
+    /// - Returns: A correct (pursuant to RFC 5545) RRule string representation of an `RRule`
+    /// instance.
     public func asRRuleString() throws -> String {
-        guard let frequency = frequency else { throw RRuleException.missingFrequency("\(self)") }
+        try validate()
         
         return [
             stringForPart(frequency.rawValue, forKey: .frequency),
-            stringForPart("\(interval.value)", forKey: .interval),
-            stringForPart(byMinute.underlyingSet.map { "\($0)" }, forKey: .byMinute),
-            stringForPart(byHour.underlyingSet.map { "\($0)" }, forKey: .byHour),
+            stringForPart("\(interval)", forKey: .interval),
+            stringForPart(byMinute.map { "\($0)" }, forKey: .byMinute),
+            stringForPart(byHour.map { "\($0)" }, forKey: .byHour),
             stringForPart(byDay.map { $0.rawValue }, forKey: .byDay),
             stringForPart(wkst?.rawValue, forKey: .wkst)
         ]
@@ -178,9 +165,7 @@ extension RRule {
     
     private func stringForPart(_ partValue: String?, forKey rRuleKey: RRuleKey) -> String? {
         guard let partValue = partValue else { return nil }
-        if rRuleKey == .interval, interval.isValidAndAddableToRRule == false {
-            return nil
-        }
+        if rRuleKey == .interval, interval > 1 { return nil }
         return [rRuleKey.rawValue, "=", partValue].joined()
     }
     
@@ -193,6 +178,65 @@ extension RRule {
         return [rRuleKey.rawValue, "=", joinedPartValues].joined()
     }
     
+    private func validate() throws {
+        let failedValidations = RRuleKey.allCases.compactMap { key -> FailedInputValidation? in
+            switch key {
+            case .frequency:
+                if frequency == nil { return .frequency(nil) }
+            case .interval:
+                if let invalidInterval = RRule.validate(interval, for: .interval) { return .interval(invalidInterval) }
+            case .byMinute:
+                if let invalidByMinutes = RRule.validate(byMinute, for: .byMinute) { return .byMinute(invalidByMinutes) }
+            case .byHour:
+                if let invalidByHours = RRule.validate(byMinute, for: .byMinute) { return .byHour(invalidByHours) }
+            case .byDay: break
+            case .wkst: break
+            }
+            return nil
+        }
+        
+        if failedValidations.count == 1 { throw RRuleException.invalidInput(failedValidations[0]) }
+        if failedValidations.count > 1 { throw RRuleException.multiple(failedValidations) }
+    }
+    
+    private typealias IntValidator = (Int) -> Bool
+    
+    private enum TypesRequiringValidation {
+        enum Set {
+            case byMinute
+            case byHour
+            
+            var validator: IntValidator {
+                switch self {
+                case .byMinute:
+                    return { $0 >= 0 && $0 <= 59 }
+                case .byHour:
+                    return { $0 >= 0 && $0 <= 23 }
+                }
+            }
+        }
+        
+        enum Int {
+            case interval
+            
+            var validator: IntValidator {
+                switch self {
+                case .interval: return { $0 > 0 }
+                }
+            }
+        }
+    }
+    
+    private static func validate(_ values: Set<Int>, for setProperty: TypesRequiringValidation.Set) -> [Int]? {
+        let possibleInvalidValues = values.filter { setProperty.validator($0) == false }.compactMap { $0 }
+        guard possibleInvalidValues.isEmpty else { return possibleInvalidValues }
+        return nil
+    }
+    
+    private static func validate(_ value: Int, for integerProperty: TypesRequiringValidation.Int) -> Int? {
+        integerProperty.validator(value) ? nil : value
+    }
+    
 }
 
 // MARK: - RRule Part Types (not all inclusive due to using primitive types for some parts)
@@ -202,23 +246,11 @@ public extension RRule {
     enum Frequency: String, CaseIterable {
         case daily  = "DAILY"
         case weekly = "WEEKLY"
-        
-        init(_ freq: String) throws {
-            guard let frequency = Frequency(rawValue: freq) else {
-                throw RRuleException.invalidInput(.frequency(freq))
-            }
-            self = frequency
-        }
     }
     
     /// BYDAY (strings)  and WKST (string) use same inputs. For example, in this RRule string:
     /// `FREQ=DAILY;BYDAY=MO,WE,FR;WKST=MO`
     enum Day: String, CaseIterable {
-    
-        enum Part {
-            case byDay, wkst
-        }
-        
         case sunday    = "SU"
         case monday    = "MO"
         case tuesday   = "TU"
@@ -226,147 +258,6 @@ public extension RRule {
         case thursday  = "TH"
         case friday    = "FR"
         case saturday  = "SA"
-        
-        init(_ day: String, for part: Part) throws {
-            guard let day = Day(rawValue: day) else {
-                throw RRuleException.invalidInput(part == .byDay ? .byDay(day) : .wkst(day))
-            }
-            self = day
-        }
-        
-        static func validate(_ value: String) throws -> Set<Day> {
-            let byDays = try value.components(separatedBy: ",").map { try Day($0, for: .byDay) }
-            return Set(byDays)
-        }
-    }
-    
-    // TODO: - Try to make generic for other primitive types
-    struct RRuleSet {
-        
-        public enum RRulePartSet {
-            case byMinute, byHour
-            
-            var validator: (Int) -> Bool {
-                switch self {
-                    case .byMinute: return { $0 >= 0 && $0 <= 59 } // interval [0,59]
-                    case .byHour: return { $0 >= 0 && $0 <= 23 }   // interval [0,23]
-                }
-            }
-        }
-        
-        // MARK: - Properties
-        
-        private(set) public var underlyingSet: Set<Int> = []
-        
-        // MARK: - Initializers
-        
-        public init(for partSet: RRulePartSet) {
-            self.rRulePartSet = partSet
-        }
-        
-        public init(_ rawPartValues: String, for partSet: RRulePartSet) throws {
-            let byValues = rawPartValues.components(separatedBy: ",").compactMap { Int($0) }
-            let validatedValues = try Self.validate(byValues, for: partSet)
-            self.underlyingSet = .init(validatedValues)
-            self.rRulePartSet = partSet
-        }
-        
-        // MARK: - Public
-        
-        public mutating func insert(_ element: Int) throws {
-            underlyingSet.insert(try validate(element, for: rRulePartSet))
-        }
-        
-        public mutating func removeAll() {
-            underlyingSet.removeAll()
-        }
-        
-        public mutating func remove(_ element: Int) -> Int? {
-            underlyingSet.remove(element)
-        }
-        
-        public static func `default`(for partSet: RRulePartSet, timeOfDay: RRule.RRuleDefault = .morning) -> RRuleSet {
-            var rRuleSet = RRuleSet(for: partSet)
-            switch partSet {
-                case .byMinute:
-                    rRuleSet.underlyingSet.insert(Constants.topOfTheHour)
-                case .byHour:
-                    rRuleSet.underlyingSet.insert(timeOfDay.rawValue)
-            }
-            return rRuleSet
-        }
-        
-        // MARK: - Private
-        
-        private enum Constants {
-            static let topOfTheHour = 0
-        }
-        
-        private let rRulePartSet: RRulePartSet
-        
-        private func validate(_ value: Int, for partSet: RRulePartSet) throws -> Int {
-            guard partSet.validator(value) else {
-                switch rRulePartSet {
-                    case .byMinute:
-                        throw RRule.RRuleException.invalidInput(.byMinute(value))
-                    case .byHour:
-                        throw RRule.RRuleException.invalidInput(.byHour(value))
-                }
-            }
-            return value
-        }
-        
-        private static func validate(_ values: [Int], for partSet: RRulePartSet) throws -> [Int] {
-            let possibleInvalidByValues = values.filter { partSet.validator($0) == false }
-            guard possibleInvalidByValues.isEmpty else {
-                var failedInputException: RRule.FailedInputValidation?
-                
-                if partSet == .byMinute { failedInputException = .byMinute(possibleInvalidByValues) }
-                if partSet == .byHour { failedInputException = .byHour(possibleInvalidByValues) }
-                
-                if let failedInputException = failedInputException {
-                    throw RRule.RRuleException.invalidInput(failedInputException)
-                } else {
-                    throw RRule.RRuleException.unknownOrUnsupported(rRulePart: "\(values)")
-                }
-            }
-            return values
-        }
-        
-    }
-
-    struct RRuleInterval {
-        
-        /// Since INTERVAL's default equals 1, it's not required to be added to an RRule string. So it should be > 1.
-        public var isValidAndAddableToRRule: Bool { validator(value) && value > 1 }
-        
-        private(set) var value: Int = 1
-        
-        // MARK: - Initializers
-
-        public init() { }
-        
-        public init(_ rawInterval: String) throws {
-            guard let interval = Int(rawInterval), interval > 0 else {
-                throw RRuleException.invalidInput(.interval(rawInterval))
-            }
-            self.value = interval
-        }
-        
-        // MARK: - Public
-        
-        public mutating func update(_ interval: Int) throws {
-            guard validator(interval) else {
-                throw RRuleException.invalidInput(.interval(interval))
-            }
-            value = interval
-        }
-        
-        // MARK: - Private
-        
-        /// Valid interval [1,∞)
-        private let validator: (Int) -> Bool = { $0 > 0 }
-
     }
     
 }
@@ -435,18 +326,18 @@ public extension RRule {
     
 }
 
-// MARK: - CustomStringConvertible
+// MARK: - CustomDebugStringConvertible
 
-extension RRule: CustomStringConvertible {
+extension RRule: CustomDebugStringConvertible {
     
-    public var description: String {
+    public var debugDescription: String {
         """
         \n\(RRule.self):
-        \(desc)
+        \(debugMessage)
         """
     }
     
-    private var desc: String {
+    private var debugMessage: String {
         RRuleKey.allCases.map {
             var keyValue = "\($0) ="
             switch $0 {

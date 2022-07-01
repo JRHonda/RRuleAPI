@@ -27,16 +27,16 @@ final public class RRuleTests: XCTestCase {
         let rRule = try XCTUnwrap(try RRule.parse(rRule: validRRuleString))
         let frequency = try XCTUnwrap(rRule.frequency)
         precondition(frequency == .daily, "Failed Test: \(#function) | Asserted frequency == .daily but equals \(frequency)")
-        precondition(rRule.interval.value == 2, "Failed Test: \(#function) | Asserted interval == 2 but equals \(rRule.interval)")
-        precondition(rRule.byMinute.underlyingSet == Set(0...59), "Failed Test: \(#function) | Error parsing for BYMINUTE")
-        precondition(rRule.byHour.underlyingSet == Set(0...23), "Failed Test: \(#function) | Error parsing for BYHOUR")
+        precondition(rRule.interval == 2, "Failed Test: \(#function) | Asserted interval == 2 but equals \(rRule.interval)")
+        precondition(rRule.byMinute == Set(0...59), "Failed Test: \(#function) | Error parsing for BYMINUTE")
+        precondition(rRule.byHour == Set(0...23), "Failed Test: \(#function) | Error parsing for BYHOUR")
         precondition(rRule.byDay == Set(RRule.Day.allCases), "Failed Test: \(#function) | Error parsing for BYDAY")
         precondition(rRule.wkst == .friday, "Failed Test: \(#function) | Asserted wkst == .friday but equals \(String(describing: rRule.wkst))")
         
         XCTAssertEqual(rRule.frequency, .daily)
-        XCTAssertEqual(rRule.interval.value, 2)
-        XCTAssertEqual(rRule.byMinute.underlyingSet, Set(0...59))
-        XCTAssertEqual(rRule.byHour.underlyingSet, Set(0...23))
+        XCTAssertEqual(rRule.interval, 2)
+        XCTAssertEqual(rRule.byMinute, Set(0...59))
+        XCTAssertEqual(rRule.byHour, Set(0...23))
         XCTAssertEqual(rRule.byDay, Set(RRule.Day.allCases))
         XCTAssertEqual(rRule.wkst, .friday)
     }
@@ -48,7 +48,7 @@ final public class RRuleTests: XCTestCase {
         do {
             _ = try RRule.parse(rRule: invalidRRuleString)
         } catch let error as RRule.RRuleException {
-            guard case .invalidInput(.frequency(_)) = error else {
+            guard case .missingFrequency(_) = error else {
                 precondition(false, "Failed Test: \(#function) line: \(#line) | \(error.message)")
                 XCTFail("Expected Exception -> \(RRule.RRuleException.invalidInput(.frequency(invalidFrequency))) but got \(error)")
                 return
@@ -62,7 +62,7 @@ final public class RRuleTests: XCTestCase {
         do {
             _ = try rRule.asRRuleString()
         } catch let error as RRule.RRuleException {
-            guard case .missingFrequency(_) = error else {
+            guard case .invalidInput(.frequency(_)) = error else {
                 precondition(false, "Failed Test: \(#function) line: \(#line) | \(error.message)")
                 XCTFail("Expected Exception -> \(RRule.RRuleException.invalidInput(.frequency(nil))) but got \(error)")
                 return
