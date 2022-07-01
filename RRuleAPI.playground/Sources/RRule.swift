@@ -1,5 +1,5 @@
 //
-//  RRuleAPI.swift
+//  RRule.swift
 //
 //  Created by Justin Honda on 6/23/2022.
 //
@@ -25,6 +25,18 @@ public struct RRule {
                 throw RRuleException.unknownOrUnsupported(rRulePart: key.isEmpty ? "{empty}" : key)
             }
             self = rRuleKey
+        }
+    }
+    
+    /// 24-hour time format
+    public enum RRuleDefault: Int {
+        case morning   = 8
+        case afternoon = 12
+        case evening   = 17
+        case bedtime   = 21
+        
+        var rRule: RRule {
+            .init(frequency: .daily, byHour: .default(for: .byHour, timeOfDay: self))
         }
     }
     
@@ -71,6 +83,23 @@ public struct RRule {
     public var wkst: Day? // TODO: - Still deciding if we want to support this on initial API release
     
     public init() { }
+    
+    public init(default rRuleDefault: RRuleDefault) { self = rRuleDefault.rRule }
+    
+    /// Defaults to desired frequency at 0800
+    public init(frequency: Frequency,
+                interval: RRuleInterval = .init(),
+                byMinute: RRuleSet = .default(for: .byMinute),
+                byHour: RRuleSet = .default(for: .byHour),
+                byDay: Set<Day> = [],
+                wkst: Day? = nil) {
+        self.frequency = frequency
+        self.interval = interval
+        self.byMinute = byMinute
+        self.byHour = byHour
+        self.byDay = byDay
+        self.wkst = wkst
+    }
     
 }
 
@@ -149,7 +178,7 @@ extension RRule {
     
     private func stringForPart(_ partValue: String?, forKey rRuleKey: RRuleKey) -> String? {
         guard let partValue = partValue else { return nil }
-        if rRuleKey == .interval, interval.isValidAndAddable == false {
+        if rRuleKey == .interval, interval.isValidAndAddableToRRule == false {
             return nil
         }
         return [rRuleKey.rawValue, "=", partValue].joined()
@@ -256,7 +285,22 @@ public extension RRule {
             underlyingSet.remove(element)
         }
         
+        public static func `default`(for partSet: RRulePartSet, timeOfDay: RRule.RRuleDefault = .morning) -> RRuleSet {
+            var rRuleSet = RRuleSet(for: partSet)
+            switch partSet {
+                case .byMinute:
+                    rRuleSet.underlyingSet.insert(Constants.topOfTheHour)
+                case .byHour:
+                    rRuleSet.underlyingSet.insert(timeOfDay.rawValue)
+            }
+            return rRuleSet
+        }
+        
         // MARK: - Private
+        
+        private enum Constants {
+            static let topOfTheHour = 0
+        }
         
         private let rRulePartSet: RRulePartSet
         
@@ -293,7 +337,8 @@ public extension RRule {
 
     struct RRuleInterval {
         
-        public var isValidAndAddable: Bool { validator(value) }
+        /// Since INTERVAL's default equals 1, it's not required to be added to an RRule string. So it should be > 1.
+        public var isValidAndAddableToRRule: Bool { validator(value) && value > 1 }
         
         private(set) var value: Int = 1
         
