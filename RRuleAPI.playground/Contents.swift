@@ -18,9 +18,9 @@ let retrievedRRule = "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;BYMINUTE=30,45;WKST=
 do {
     var rrule = try RRule.parse(rRule: retrievedRRule)!
     print(try rrule.asRRuleString())
-
-    rrule.byHour.insert(-1)
-    rrule.byMinute.insert(-1)
+    
+    try rrule.byHour.insert(2)
+    try rrule.byMinute.insert(2)
     rrule.wkst = .monday
 
     print(try rrule.asRRuleString())
