@@ -14,12 +14,12 @@ public struct RRule {
     // MARK: - Properties
     
     /// REQUIRED pursuant to RFC 5545
-    public var frequency: Frequency! // TODO: - Simple conditional mapping based on frequency change i.e. if user has an RRule that defines a WEEKLY frequency but changes to YEARLY, then it would make sense to clear out the data used generate weekly recurrences. There are so many scenarios so in order to make this API easy to maintain and use, we'll focus on FREQ level changes only.
+    public var frequency: Frequency! // TODO: - Simple conditional mapping based on frequency change i.e. if user has an RRule that defines a WEEKLY frequency but changes to YEARLY, then it would make sense to clear out the data used generate weekly recurrences. There are many scenarios so in order to make this API easy to maintain and use, we'll focus on FREQ level changes only.
     
     /// Default == 1 pursuant to RFC 5545
     /// MUST be a postive integer
     public var interval: Int = Constants.RRulePartDefault.interval
-    
+        
     /**
     Time input minute component
     
@@ -310,15 +310,6 @@ private extension RRule {
             : try _validate(value, forKey: .byHour)
     }
     
-    typealias InvalidIntegerPartValues = [Int]
-    
-    // GENERATING
-    static func validateIntegerPartValues(_ values: [Int], validator: InputValidator?) -> InvalidIntegerPartValues? {
-        guard let validator = validator, values.isEmpty == false else { return nil }
-        let invalidValues = values.filter { validator($0) == false }
-        return invalidValues.isEmpty ? nil : invalidValues
-    }
-    
     // GENERATING
     static func validateAllParts(forRRule rRule: RRule) throws {
         // ensure all parts (that need validation) are validated (including parts added in the future)
@@ -351,11 +342,20 @@ private extension RRule {
         }
     }
     
+    typealias InvalidIntegerPartValues = [Int]
+    
+    // GENERATING
+    static func validateIntegerPartValues(_ values: [Int], validator: InputValidator?) -> InvalidIntegerPartValues? {
+        guard let validator = validator, values.isEmpty == false else { return nil }
+        let invalidValues = values.filter { validator($0) == false }
+        return invalidValues.isEmpty ? nil : invalidValues
+    }
+    
 }
 
 // MARK: - Private
 
-private extension RRule {
+public extension RRule {
     
     enum Constants {
         enum RRulePartDefault {
@@ -380,10 +380,4 @@ private extension RRule {
         }
     }
     
-}
-
-// MARK: - String+Extensions
-
-private extension String {
-    static let empty = ""
 }
