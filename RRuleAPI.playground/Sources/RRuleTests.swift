@@ -53,6 +53,8 @@ final public class RRuleTests: XCTestCase {
                 XCTFail("Expected Exception -> \(RRule.RRuleException.invalidInput(.frequency(invalidFrequency))) but got \(error)")
                 return
             }
+        } catch {
+            fatalError(error.localizedDescription + " poop")
         }
         
         // Rrule string generation
@@ -60,8 +62,7 @@ final public class RRuleTests: XCTestCase {
         do {
             _ = try rRule.asRRuleString()
         } catch let error as RRule.RRuleException {
-            guard case .invalidInput(let failedValidation) = error,
-                  case .frequency(_) = failedValidation else {
+            guard case .missingFrequency(_) = error else {
                 precondition(false, "Failed Test: \(#function) line: \(#line) | \(error.message)")
                 XCTFail("Expected Exception -> \(RRule.RRuleException.invalidInput(.frequency(nil))) but got \(error)")
                 return

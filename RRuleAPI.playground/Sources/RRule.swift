@@ -83,7 +83,7 @@ extension RRule {
     /// - Returns: A modifiable `RRule` object of the passed in RRule string
     public static func parse(rRule: String) throws -> RRule? {
         if rRule.isEmpty { throw RRuleException.emptyRRule }
-                
+        
         let rRuleParts = try rRule
             .components(separatedBy: ";")
             .compactMap { kvp -> (RRuleKey, String) in
@@ -133,6 +133,8 @@ extension RRule {
 extension RRule {
     
     public func asRRuleString() throws -> String {
+        guard let frequency = frequency else { throw RRuleException.missingFrequency("\(self)") }
+        
         return [
             stringForPart(frequency.rawValue, forKey: .frequency),
             stringForPart("\(interval.value)", forKey: .interval),
@@ -209,10 +211,18 @@ public extension RRule {
         }
     }
     
+    // TODO: - Try to make generic for other primitive types
     struct RRuleSet {
         
         public enum RRulePartSet {
             case byMinute, byHour
+            
+            var validator: (Int) -> Bool {
+                switch self {
+                    case .byMinute: return { $0 >= 0 && $0 <= 59 } // interval [0,59]
+                    case .byHour: return { $0 >= 0 && $0 <= 23 }   // interval [0,23]
+                }
+            }
         }
         
         // MARK: - Properties
@@ -250,15 +260,8 @@ public extension RRule {
         
         private let rRulePartSet: RRulePartSet
         
-        typealias InputValidator = (Int) -> Bool
-        
-        private static let validators: [RRulePartSet: InputValidator] = [
-            .byMinute: { $0 >= 0 && $0 <= 59 }, // interval [0,59]
-            .byHour: { $0 >= 0 && $0 <= 23 }    // interval [0,23]
-        ]
-        
-        private func validate(_ value: Int, for rRulePartSet: RRulePartSet) throws -> Int {
-            guard Self.validators[rRulePartSet]!(value) else {
+        private func validate(_ value: Int, for partSet: RRulePartSet) throws -> Int {
+            guard partSet.validator(value) else {
                 switch rRulePartSet {
                     case .byMinute:
                         throw RRule.RRuleException.invalidInput(.byMinute(value))
@@ -270,7 +273,7 @@ public extension RRule {
         }
         
         private static func validate(_ values: [Int], for partSet: RRulePartSet) throws -> [Int] {
-            let possibleInvalidByValues = values.filter { validators[partSet]!($0) == false }
+            let possibleInvalidByValues = values.filter { partSet.validator($0) == false }
             guard possibleInvalidByValues.isEmpty else {
                 var failedInputException: RRule.FailedInputValidation?
                 
@@ -316,6 +319,7 @@ public extension RRule {
         
         // MARK: - Private
         
+        /// Valid interval [1,∞)
         private let validator: (Int) -> Bool = { $0 > 0 }
 
     }
@@ -336,7 +340,7 @@ public extension RRule {
         public var message: String {
             switch self {
             case .missingFrequency(let rRule):
-                return "⚠️ Pursuant to RFC 5545, FREQ is required. RRule string attempted to parse -> \(rRule)"
+                return "⚠️ Pursuant to RFC 5545, FREQ is required. Your RRule -> \(rRule)"
             case .emptyRRule:
                 return "⚠️ Empty RRule string!"
             case .invalidInput(let failedInputValidation):
@@ -382,6 +386,41 @@ public extension RRule {
                 return "⚠️ \(message)"
             }
         }
+    }
+    
+}
+
+// MARK: - CustomStringConvertible
+
+extension RRule: CustomStringConvertible {
+    
+    public var description: String {
+        """
+        \n\(RRule.self):
+        \(desc)
+        """
+    }
+    
+    private var desc: String {
+        RRuleKey.allCases.map {
+            var keyValue = "\($0) ="
+            switch $0 {
+                case .frequency:
+                    keyValue += " \(String(describing: frequency))"
+                case .interval:
+                    keyValue += " \(interval)"
+                case .byMinute:
+                    keyValue += " \(byMinute)"
+                case .byHour:
+                    keyValue += " \(byHour)"
+                case .byDay:
+                    keyValue += " \(byDay)"
+                case .wkst:
+                    keyValue += " \(String(describing: wkst))"
+            }
+            return "\t\(keyValue)"
+        }
+        .joined(separator: "\n")
     }
     
 }

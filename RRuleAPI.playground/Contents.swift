@@ -24,6 +24,13 @@ do {
     rrule.wkst = .monday
 
     print(try rrule.asRRuleString())
-} catch(let error as RRule.RRuleException) {
+} catch let error as RRule.RRuleException {
+    print(error.message)
+}
+
+do {
+    let rrule = RRule()
+    _ = try rrule.asRRuleString()
+} catch let error as RRule.RRuleException {
     print(error.message)
 }
