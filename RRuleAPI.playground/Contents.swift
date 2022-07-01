@@ -33,9 +33,9 @@ do {
     let eveningRRule = RRule(default: .evening)
     try eveningRRule.asRRuleString()
     let bedtimeRRule = RRule(default: .bedtime)
-    try bedtimeRRule.asRRuleString()
+    print("\tBedtime RRule Default (bedtime): \(try bedtimeRRule.asRRuleString())")
 } catch let error as RRule.RRuleException {
-    print(error.message)
+    print("\t\(error.message)")
 }
 
 // MARK: - RRule parse/modify/generate
@@ -44,15 +44,15 @@ print("\nℹ️ MARK: - RRule parse/modify/generate ℹ️\n")
 
 do {
     var rrule = try RRule.parse(rRule: retrievedRRule)!
-    print(try rrule.asRRuleString())
+    print("\t\(try rrule.asRRuleString())")
     
     try rrule.byHour.insert(2)
     try rrule.byMinute.insert(2)
     rrule.wkst = .monday
 
-    print(try rrule.asRRuleString())
+    print("\t\(try rrule.asRRuleString())")
 } catch let error as RRule.RRuleException {
-    print(error.message)
+    print("\t\(error.message)")
 }
 
 // MARK: - RRule Exception Handling
@@ -63,5 +63,5 @@ do {
     let rrule = RRule()
     _ = try rrule.asRRuleString()
 } catch let error as RRule.RRuleException {
-    print(error.message)
+    print("\t\(error.message)")
 }
