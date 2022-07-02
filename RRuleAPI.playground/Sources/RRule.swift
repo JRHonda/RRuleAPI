@@ -28,6 +28,8 @@ public struct RRule {
     
     /// Default == 1 pursuant to RFC 5545
     /// MUST be a postive integer
+    ///
+    /// If value remains 1 at time of RRule string generation, it will be omitted.
     public var interval: Int = 1
     
     /**
@@ -93,7 +95,13 @@ extension RRule {
     public static func parse(rRule: String) throws -> RRule? {
         if rRule.isEmpty { throw RRuleException.emptyRRule }
         
-        let rRuleParts = try rRule
+        func separate<T>(_ value: String, convertTo castType: (String) -> T?) -> [T] {
+            value.components(separatedBy: ",").compactMap { castType($0) }
+        }
+        
+        var recurrenceRule = RRule()
+        
+        return try rRule
             .components(separatedBy: ";")
             .compactMap { kvp -> (RRuleKey, String) in
                 let kvpComponents = kvp.components(separatedBy: "=")
@@ -104,38 +112,28 @@ extension RRule {
                       let value = kvpComponents.last else {
                     throw RRuleException.invalidInput(.invalidRRule(rRule))
                 }
-                                
+                
                 return (key, value)
             }
-        
-        func separate<T>(_ value: String, convertTo castType: (String) -> T?) -> [T] {
-            value.components(separatedBy: ",").compactMap { castType($0) }
-        }
-        
-        var recurrenceRule = RRule()
-        
-        rRuleParts.forEach { key, value in
-            switch key {
-            case .frequency:
-                recurrenceRule.frequency = Frequency(rawValue: value)
-            case .interval:
-                if let interval = Int(value) { recurrenceRule.interval = interval }
-            case .byMinute:
-                recurrenceRule.byMinute = Set(separate(value, convertTo: Int.init))
-            case .byHour:
-                recurrenceRule.byHour = Set(separate(value, convertTo: Int.init))
-            case .byDay:
-                recurrenceRule.byDay = Set(separate(value, convertTo: Day.init))
-            case .wkst:
-                recurrenceRule.wkst = Day(rawValue: value)
-            }
-        }
-        
-        if recurrenceRule.frequency == nil {
-            throw RRuleException.missingFrequency(rRule)
-        }
-        
-        return recurrenceRule
+            .reduce(recurrenceRule, { _, keyValue in
+                let (key, value) = keyValue
+                switch key {
+                case .frequency:
+                    recurrenceRule.frequency = Frequency(rawValue: value)
+                    if recurrenceRule.frequency == nil { throw RRuleException.missingFrequency(rRule)  }
+                case .interval:
+                    if let interval = Int(value) { recurrenceRule.interval = interval }
+                case .byMinute:
+                    recurrenceRule.byMinute = Set(separate(value, convertTo: Int.init))
+                case .byHour:
+                    recurrenceRule.byHour = Set(separate(value, convertTo: Int.init))
+                case .byDay:
+                    recurrenceRule.byDay = Set(separate(value, convertTo: Day.init))
+                case .wkst:
+                    recurrenceRule.wkst = Day(rawValue: value)
+                }
+                return recurrenceRule
+            })
     }
 
 }
@@ -159,8 +157,8 @@ extension RRule {
             stringForPart(byDay.map { $0.rawValue }, forKey: .byDay),
             stringForPart(wkst?.rawValue, forKey: .wkst)
         ]
-            .compactMap { $0 }
-            .joined(separator: ";")
+        .compactMap { $0 }
+        .joined(separator: ";")
     }
     
     private func stringForPart(_ partValue: String?, forKey rRuleKey: RRuleKey) -> String? {
@@ -203,15 +201,12 @@ extension RRule {
     
     private enum TypesRequiringValidation {
         enum Set {
-            case byMinute
-            case byHour
+            case byMinute, byHour
             
             var validator: IntValidator {
                 switch self {
-                case .byMinute:
-                    return { $0 >= 0 && $0 <= 59 }
-                case .byHour:
-                    return { $0 >= 0 && $0 <= 23 }
+                case .byMinute: return { $0 >= 0 && $0 <= 59 } // [0,59]
+                case .byHour: return   { $0 >= 0 && $0 <= 23 } // [0,23]
                 }
             }
         }
